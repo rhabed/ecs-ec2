@@ -9,21 +9,22 @@ Parameters:
   InstanceType:
     Type: String
     Default: t3.small
-    Description: Class of EC2 instance used to host containers. Choose t2 for testing, m5 for general purpose, c5 for CPU intensive services, and r5 for memory intensive services
+    Description: Class of EC2 instance used to host containers.
     AllowedValues: [ t3.micro, t3.small, t3.medium, t3.large ]
     ConstraintDescription: Please choose a valid instance type.
   DesiredCapacity:
     Type: Number
-    Default: '2'
+    Default: '1'
     Description: Number of EC2 instances to launch in your ECS cluster.
   MaxSize:
     Type: Number
-    Default: '2'
+    Default: '1'
     Description: Maximum number of EC2 instances that can be launched in your ECS cluster.
   ECSAMI:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ecs/optimized-ami/amazon-linux/recommended/image_id
+    Default: /aws/service/ami-windows-latest/Windows_Server-2019-English-Full-ECS_Optimized/image_id
     Description: The Amazon Machine Image ID used for the cluster, leave it as the default value to get the latest AMI
+    # /aws/service/ami-windows-latest/Windows_Server-2019-English-Core-ECS_Optimized/
 
 Mappings:
   # Hard values for the subnet masks. These masks define
@@ -147,12 +148,15 @@ Resources:
       SecurityGroups: [!Ref 'ContainerSecurityGroup']
       InstanceType: !Ref 'InstanceType'
       IamInstanceProfile: !Ref 'EC2InstanceProfile'
+      KeyName: 'my-ecs-key'
       UserData:
         Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
-          yum install -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
+          <powershell>
+          [Environment]::SetEnvironmentVariable("ECS_ENABLE_AWSLOGS_EXECUTIONROLE_OVERRIDE", $TRUE, "Machine")
+          Initialize-ECSAgent -Cluster ${ECSCluster} -EnableTaskIAMRole -LoggingDrivers '[\"json-file\",\"awslogs\"]'
+          cfn-signal.exe -e $lastexitcode --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
+          </powershell>
+
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
