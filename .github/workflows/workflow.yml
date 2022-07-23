@@ -29,4 +29,4 @@ jobs:
       - name: Print the Cloud Formation Linter Version & run Linter.
         run: |
           cfn-lint --version
-          cfn-lint -i W -t ./cnf/*.yaml
+          cfn-lint -i W -t ./cfn/*.yaml
