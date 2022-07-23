@@ -60,7 +60,7 @@ Resources:
       LogGroupName: !Sub ${EnvironmentName}-service-${ServiceName}
 
 
-  ExecutionRoleArn:
+  ExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -89,7 +89,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Ref 'ServiceName'
-      ExecutionRoleArn: !Ref ExecutionRoleArn
+      ExecutionRoleArn:
+        Fn::GetAtt: ["ExecutionRole", "Arn"]
       Cpu: !Ref 'ContainerCpu'
       Memory: !Ref 'ContainerMemory'
       TaskRoleArn:
