@@ -1,10 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: External, public facing load balancer, for forwarding public traffic to containers
+
 Parameters:
   EnvironmentName:
     Type: String
     Default: production
     Description: The name of the environment to add this load balancer to
+
 Resources:
   EcsSecurityGroupIngressFromPublicALB:
     Type: AWS::EC2::SecurityGroupIngress
@@ -19,6 +21,7 @@ Resources:
   # to the public, and is intended to route traffic to one or more public
   # facing services. This is used for accepting traffic from the public
   # internet and directing it to public facing microservices
+
   PublicLoadBalancerSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -28,7 +31,14 @@ Resources:
       SecurityGroupIngress:
           # Allow access to ALB from anywhere on the internet
           - CidrIp: 0.0.0.0/0
-            IpProtocol: -1
+            IpProtocol: TCP
+            FromPort: 80
+            ToPort: 80
+          - CidrIp: 0.0.0.0/0
+            IpProtocol: TCP
+            FromPort: 443
+            ToPort: 443
+            
   PublicLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -48,7 +58,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
+      HealthCheckPath: /healthcheck.html
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
@@ -59,8 +69,6 @@ Resources:
         Fn::ImportValue: !Sub ${EnvironmentName}:VpcId
   PublicLoadBalancerListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
-    DependsOn:
-      - PublicLoadBalancer
     Properties:
       DefaultActions:
         - TargetGroupArn: !Ref 'DummyTargetGroupPublic'

@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This template creates vpc with public and private subnets for AxeFinance
+ 
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: production
+    Description: The name of the environment to add this service to
+  DBInstanceID:
+    Default: axeDbinstance
+    Description: Axe database instance
+    Type: String
+    MinLength: '1'
+    MaxLength: '63'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: >-
+      Must begin with a letter and must not end with a hyphen or contain two
+      consecutive hyphens.
+  DBInstanceClass:
+    Default: db.t3.xlarge
+    Description: DB instance class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  DBAllocatedStorage:
+    Default: '50'
+    Description: The size of the database (GiB)
+    Type: Number
+    MinValue: '20'
+    MaxValue: '65536'
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  DBUsername:
+    NoEcho: 'true'
+    Description: Username for MSSQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password MSSQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+Resources:
+  DomainIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: 'DomainIamRole'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSDirectoryServiceFullAccess'
+  RDSSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: 'Subnet RDS Subnet group.'
+      SubnetIds:
+        - Fn::ImportValue: !Sub ${EnvironmentName}:PrivateSubnetOne
+        - Fn::ImportValue: !Sub ${EnvironmentName}:PrivateSubnetTwo
+  AxeDB:
+    Type: 'AWS::RDS::DBInstance'
+    DependsOn:
+      - DomainIAMRole
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceID
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      Engine: sqlserver-se
+      EngineVersion: 15.00.4198.2.v1
+      LicenseModel: license-included
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      Domain:
+        Fn::ImportValue:
+          Fn::Sub: ${EnvironmentName}:Directory
+      DomainIAMRoleName: 'DomainIamRole'
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+  RDSSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Axe RDS Security Group'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: ${EnvironmentName}:VpcId
+  RdsDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId:
+        Fn::ImportValue:
+            Fn::Sub: "${EnvironmentName}:HostedZoneResource"
+      Comment: DNS name for RDS.
+      Name: 'rds.axefinance.internal'
+      Type: CNAME
+      TTL: 900
+      ResourceRecords:
+      - !GetAtt AxeDB.Endpoint.Address

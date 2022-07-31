@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Active Directory and Internal Hosted Zone. 
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: production
+    Description: "A friendly environment name that will be used for namespacing all cluster resources. Example: staging, qa, or production"
+  DirectoryName:
+    Type: String
+    Default: MYDOMAIN.com
+    Description: "The domain name used in AD"
+  DirectoryShortName:
+    Type: String
+    Default: MYDOMAIN
+    Description: "The domain shortname used in AD"
+  DirectoryPassword:
+    Type: String
+    Default: MyStr0ngP@ssword123
+    Description: "The domain default admin password"
+    NoEcho: true
+  HostedZoneDomain:
+    Default: 'robertabed.internal'
+    Type: String
+    Description: Privated Hosted Zone Name
+    
+Resources:
+  Directory: 
+    Type: AWS::DirectoryService::MicrosoftAD
+    Properties: 
+      Name: !Ref DirectoryName
+      Password: !Ref DirectoryPassword
+      ShortName: !Ref DirectoryShortName
+      VpcSettings: 
+        SubnetIds: 
+        - Fn::ImportValue: !Sub ${EnvironmentName}:PrivateSubnetOne
+        - Fn::ImportValue: !Sub ${EnvironmentName}:PrivateSubnetTwo
+        VpcId:
+          Fn::ImportValue: !Sub ${EnvironmentName}:VpcId
+  
+  DirectoryNameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: directorynamessm
+      Type: String
+      Value: !Ref DirectoryName
+      Description: SSM Parameter for AD Name
+
+  DirectoryUserSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: directoryuserssm
+      Type: String
+      Value: admin
+      Description: SSM Parameter for AD Username
+
+  DirectoryPasswordSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: directorypasswordssm
+      Type: String
+      Value: !Ref DirectoryPassword
+      Description: SSM Parameter for AD Username
+  
+  DirectoryDNSSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: directorydnsssm
+      Type: String
+      Value: !Select [ 0, !GetAtt Directory.DnsIpAddresses ]
+      Description: SSM Parameter for DNS IP Addresses
+
+Outputs:
+  DirectoryNameSSM:
+    Description: The Directory Name SSM
+    Value: !GetAtt DirectoryNameSSM.Value
+    Export:
+      Name: !Sub ${EnvironmentName}:DirectoryNameSSM
+
+  DirectoryUserSSM:
+    Description: The Directory Username SSM
+    Value: !GetAtt DirectoryUserSSM.Value
+    Export:
+      Name: !Sub ${EnvironmentName}:DirectoryUserSSM
+
+  DirectoryPasswordSSM:
+    Description: The Directory Password SSM
+    Value: !GetAtt DirectoryPasswordSSM.Value
+    Export:
+      Name: !Sub ${EnvironmentName}:DirectoryPasswordSSM
+      
+  DirectoryDNSSSM:
+    Description: The Directory DNS SSM
+    Value: !GetAtt DirectoryDNSSSM.Value
+    Export:
+      Name: !Sub ${EnvironmentName}:DirectoryDNSSSM
+
+  Directory:
+    Description: The Directory ref
+    Value: !Ref Directory
+    Export:
+      Name: !Sub ${EnvironmentName}:Directory

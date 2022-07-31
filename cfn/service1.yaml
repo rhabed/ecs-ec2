@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Deploy a service into an ECS cluster behind a public load balancer.
+
 Parameters:
   EnvironmentName:
     Type: String
@@ -7,7 +8,7 @@ Parameters:
     Description: The name of the environment to add this service to
   ServiceName:
     Type: String
-    Default: ecsservice
+    Default: frontend-web
     Description: A name for the service
   ImageUrl:
     Type: String
@@ -42,6 +43,12 @@ Parameters:
     Type: Number
     Default: 1
     Description: How many copies of the service task to run
+  MinCapacity:
+    Type: Number
+    Default: 1
+  MaxCapacity:
+    Type: Number
+    Default: 2
   Role:
     Type: String
     Default: ""
@@ -52,18 +59,16 @@ Conditions:
   HasCustomRole: !Not [ !Equals [!Ref 'Role', ''] ]
 
 Resources:
-  # A log group for storing the stdout logs from this service's containers
-  LogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub ${EnvironmentName}-service-${ServiceName}
 
   # The task definition. This is a simple metadata description of what
   # container to run, and what resource requirements it has.
-  TaskDefinition:
+     
+  TaskDefinition1:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Ref 'ServiceName'
+      ExecutionRoleArn: 
+        Fn::ImportValue: !Sub ${EnvironmentName}:ExecutionRoleArn
       Cpu: !Ref 'ContainerCpu'
       Memory: !Ref 'ContainerMemory'
       TaskRoleArn:
@@ -76,6 +81,9 @@ Resources:
           Cpu: !Ref 'ContainerCpu'
           Memory: !Ref 'ContainerMemory'
           Image: !Ref 'ImageUrl'
+          StopTimeout: 120
+          DockerSecurityOptions:
+            - "credentialspec:arn:aws:s3:::rha-bucket/credspecs.json"     
           PortMappings:
             - ContainerPort: !Ref 'ContainerPort'
           LogConfiguration:
@@ -88,9 +96,9 @@ Resources:
   # The service. The service is a resource which allows you to run multiple
   # copies of a type of task, and gather up their logs and metrics, as well
   # as monitor the number of running tasks and replace any that have crashed
-  Service:
+  Service1:
     Type: AWS::ECS::Service
-    DependsOn: LoadBalancerRule
+    DependsOn: LoadBalancerRule1
     Properties:
       ServiceName: !Ref 'ServiceName'
       Cluster:
@@ -99,22 +107,23 @@ Resources:
         MaximumPercent: 200
         MinimumHealthyPercent: 75
       DesiredCount: !Ref 'DesiredCount'
-      TaskDefinition: !Ref 'TaskDefinition'
+      HealthCheckGracePeriodSeconds: 300
+      TaskDefinition: !Ref 'TaskDefinition1'
       LoadBalancers:
         - ContainerName: !Ref 'ServiceName'
           ContainerPort: !Ref 'ContainerPort'
-          TargetGroupArn: !Ref 'TargetGroup'
+          TargetGroupArn: !Ref 'TargetGroup1'
 
   # A target group. This is used for keeping track of all the tasks, and
   # what IP addresses / port numbers they have. You can query it yourself,
   # to use the addresses yourself, but most often this target group is just
   # connected to an application load balancer, or network load balancer, so
   # it can automatically distribute traffic across all the targets.
-  TargetGroup:
+  TargetGroup1:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
+      HealthCheckPath: /healthcheck.html
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
@@ -126,11 +135,11 @@ Resources:
         Fn::ImportValue: !Sub ${EnvironmentName}:VpcId
 
   # Create a rule on the load balancer for routing traffic to the target group
-  LoadBalancerRule:
+  LoadBalancerRule1:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
-        - TargetGroupArn: !Ref 'TargetGroup'
+        - TargetGroupArn: !Ref 'TargetGroup1'
           Type: 'forward'
       Conditions:
         - Field: path-pattern
@@ -140,9 +149,9 @@ Resources:
       Priority: !Ref 'Priority'
 
   # Enable autoscaling for this service
-  ScalableTarget:
+  ScalableTarget1:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
-    DependsOn: Service
+    DependsOn: Service1
     Properties:
       ServiceNamespace: 'ecs'
       ScalableDimension: 'ecs:service:DesiredCount'
@@ -152,15 +161,15 @@ Resources:
           - - service
             - Fn::ImportValue: !Sub ${EnvironmentName}:ClusterName
             - !Ref 'ServiceName'
-      MinCapacity: 1
-      MaxCapacity: 2
+      MinCapacity: !Ref MinCapacity
+      MaxCapacity: !Ref MaxCapacity
       RoleARN:
         Fn::ImportValue: !Sub ${EnvironmentName}:AutoscalingRole
 
   # Create scaling policies for the service
-  ScaleDownPolicy:
+  ScaleDownPolicy1:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    DependsOn: ScalableTarget
+    DependsOn: ScalableTarget1
     Properties:
       PolicyName:
         Fn::Join:
@@ -186,9 +195,9 @@ Resources:
         MetricAggregationType: 'Average'
         Cooldown: 60
 
-  ScaleUpPolicy:
+  ScaleUpPolicy1:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    DependsOn: ScalableTarget
+    DependsOn: ScalableTarget1
     Properties:
       PolicyName:
         Fn::Join:
@@ -221,7 +230,7 @@ Resources:
         Cooldown: 60
 
   # Create alarms to trigger these policies
-  LowCpuUsageAlarm:
+  LowCpuUsageAlarm1:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName:
@@ -251,9 +260,9 @@ Resources:
       Threshold: 20
       ComparisonOperator: LessThanOrEqualToThreshold
       AlarmActions:
-        - !Ref ScaleDownPolicy
+        - !Ref ScaleDownPolicy1
 
-  HighCpuUsageAlarm:
+  HighCpuUsageAlarm1:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName:
@@ -283,4 +292,4 @@ Resources:
       Threshold: 70
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions:
-        - !Ref ScaleUpPolicy
+        - !Ref ScaleUpPolicy1

@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: This example template describes an Amazon EC2 Systems Manager document.
+  It contains a sample script that can be used to join an EC2 instance to an Active
+  Directory domain and add to an existing AD security group. 
+  This document uses the domain user name and password that is stored in the SSM parameter. 
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+
+      - Label:
+          default: gMSA Settings
+        Parameters:
+          - gMSAADSecurityGroup
+
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: production
+    Description: "A friendly environment name that will be used for namespacing all cluster resources. Example: staging, qa, or production"
+  # DirectoryNameParameter:
+  #   Description: 'SSM Parameter name to use for Active Directory Name:'
+  #   MaxLength: '1024'
+  #   MinLength: '1'
+  #   Type: AWS::SSM::Parameter::Value<String>
+
+  # ADUserNameParameter:
+  #   Description: 'SSM Parameter name to use for AD User name:'
+  #   MaxLength: '1024'
+  #   MinLength: '1'
+  #   Type: AWS::SSM::Parameter::Value<String>
+
+  # ADUserPasswordParameter:
+  #   AllowedPattern: (?!^([aA][wW][sS]|[sS][sS][mM]))(?=^[-a-zA-Z0-9_.]*$).*
+  #   ConstraintDescription: please specify a valid Parameter Store name.
+  #   Description: 'SSM Parameter name to use for AD User password:'
+  #   MaxLength: '1024'
+  #   MinLength: '1'
+  #   Type: Stringz`
+
+  # ADDNSIPAddressesParameter:
+  #   Description: 'SSM Parameter name to use for AD DNS IP server addresses:'
+  #   MaxLength: '1024'
+  #   MinLength: '1'
+  #   Type: AWS::SSM::Parameter::Value<String>
+
+  gMSAADSecurityGroup:
+    Type: String
+    Default: "axegMSAADSG"
+    Description: 'Active Directory security group to join the instance, that controls access to the gMSA password.'
+
+Resources:
+
+  Document:
+    Type: AWS::SSM::Document
+
+    Properties:
+
+      DocumentType: Command
+      Content:
+        schemaVersion: '2.2'
+        description: Run a PowerShell script to domain join a Windows instance securely.
+
+        parameters:
+
+          DirectoryName:
+            type: String
+            default: 
+              Fn::ImportValue: !Sub ${EnvironmentName}:DirectoryNameSSM
+
+          ADUserName:
+            type: String
+            default:
+              Fn::ImportValue: !Sub ${EnvironmentName}:DirectoryUserSSM
+
+          ADUserPasswordParam:
+            type: String
+            default: 
+              Fn::ImportValue: !Sub ${EnvironmentName}:DirectoryPasswordSSM
+
+          ADDNSIPAddresses:
+            type: String
+            default:
+              Fn::ImportValue: !Sub ${EnvironmentName}:DirectoryDNSSSM
+
+          ADSecurityGroup:
+            type: String
+            default: !Ref gMSAADSecurityGroup
+
+        mainSteps:
+
+        - action: aws:runPowerShellScript
+          name: GenerateDomainJoinSSMDoc
+          precondition:
+            StringEquals:
+             - platformType
+             - Windows
+          inputs:
+            runCommand:
+            - "Fn::Sub": |
+                # Example PowerShell script to domain join a Windows instance securely
+                $ErrorActionPreference = "Stop"
+                try {
+                    # Retrieve configuration values from parameters
+                    $domain = "{{DirectoryName}}"
+                    $username = "{0}\{1}" -f $domain, "{{ADUserName}}"
+                    $password = ConvertTo-SecureString "{{ADUserPasswordParam}}" -AsPlainText -Force
+                    #(Get-SSMParameterValue -Name "{{ADUserPasswordParam}}" -WithDecryption $True).Parameters[0].Value | ConvertTo-SecureString -asPlainText -Force
+                    $ipdns = "{{ADDNSIPAddresses}}"
+
+                    $gMSASecurityGroup = "{{ADSecurityGroup}}"
+
+                    # Create a System.Management.Automation.PSCredential object
+                    $credential = New-Object System.Management.Automation.PSCredential($username, $password)
+
+                    # Get the VPC DNS server.
+                    $dnsclient = Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object {$_.ServerAddresses.Count -gt 0} | Select-Object -First 1
+
+                    # During retry, we should avoid adding duplicate DNS servers, if it was already added in the previous attempt.
+                    # VPC DNS server is the last one in the list.
+                    $vpcdns = $dnsclient.ServerAddresses | select -last 1
+                
+                    # Set up the IPv4 address of the AD DNS server as the first DNS server on this machine
+                    $dnsserverstoupdate = $("{0},{1}" -f $ipdns, $vpcdns)
+                    Write-Output ("Adding AD DNS server addresses :{0} to the IPV4 interface Index:{1}." -f $dnsserverstoupdate, $dnsclient.InterfaceIndex)
+                    Set-DnsClientServerAddress -InterfaceIndex $dnsclient.InterfaceIndex -ServerAddresses $dnsserverstoupdate
+
+                    # Join the domain
+                    Add-Computer -DomainName $domain -Credential $credential
+
+                    # Install AD Module
+                    Install-WindowsFeature RSAT-AD-PowerShell
+
+                    Write-Output ("Checking the AD security group :{0}" -f $gMSASecurityGroup)
+                    $group = Get-ADGroup -Filter "Name -eq `"$gMSASecurityGroup`""
+
+                    if($group) {
+                      Write-Output "AD security group exists. Proceeding to add the computer to the AD security group."
+                      $hostname = Invoke-Expression -Command "Hostname"
+                      $computer = Get-ADComputer -Filter "Name -eq `"$hostname`"" -Credential $credential
+                      Write-Output ("Adding host :{0} to the AD security group :{1}" -f $computer.DistinguishedName, $gMSASecurityGroup)
+                      Add-ADGroupMember -Identity $group.ObjectGUID -Members $computer.DistinguishedName -Credential $credential
+                    } else {
+                      Write-Output ("AD security group :{0} don't exist. You should create and then add the computer to that group." -f $gMSASecurityGroup)
+                    }
+
+                    Restart-Computer -Force
+                } catch [Exception] {
+                    Write-Output $_.Exception.ToString()
+                    Write-Output "Command execution failed."
+                    $host.SetShouldExit(1)
+                }
+
+Outputs:
+  DocumentName:
+    Description: The name of the document.
+    Export:
+      Name: !Sub '${EnvironmentName}-DomainJoin-Document'
+    Value: !Ref 'Document'

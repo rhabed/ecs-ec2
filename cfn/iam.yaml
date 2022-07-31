@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy a service into an ECS cluster behind a public load balancer.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: production
+    Description: The name of the environment to add this service to
+
+Resources:
+  ExecutionRoleArn:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ ecs-tasks.amazonaws.com, ecs.amazonaws.com ]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+              - 's3:*'
+              - 'ecr:*'
+              - 'logs:*'
+            Resource: '*'
+Outputs:
+  ExecutionRoleArn:
+    Description: The ARN of Execution Role
+    Value: !Ref ExecutionRoleArn
+    Export:
+      Name: !Sub ${EnvironmentName}:ExecutionRoleArn            

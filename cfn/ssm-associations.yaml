@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: SSM Assoiciation
+
+Parameters:
+
+  EnvironmentName:
+    Type: String
+    Default: production
+    Description: "A friendly environment name that will be used for namespacing all cluster resources. Example: staging, qa, or production"
+
+Resources:
+  ECSADDomainAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      Name: 
+        Fn::ImportValue: !Sub '${EnvironmentName}-DomainJoin-Document'
+      Targets:
+        - Key: tag:aws:autoscaling:groupName
+          Values:
+            Fn::Join:
+              - ':'
+              - - 'value'
+                - Fn::ImportValue: !Sub ${EnvironmentName}:ECSAutoScalingGroup
+      WaitForSuccessTimeoutSeconds: 300
