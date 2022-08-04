@@ -1,4 +1,5 @@
 ## Cli command to deploy
+```
 cd cfn/
 cfn-lint *.yaml
 aws cloudformation deploy --template-file vpc.yaml --region ap-southeast-2 --stack-name myrha-vpc
@@ -12,9 +13,3 @@ aws s3 cp creds.json  s3://rha-bucket/
 aws cloudformation deploy --template-file iam.yaml --region ap-southeast-2 --stack-name myrha-iam --capabilities CAPABILITY_IAM
 aws cloudformation deploy --template-file external-alb.yaml --region ap-southeast-2 --stack-name myrha-alb
 ```
-
-
-          dockerSecurityOptions:
-            - "credentialspec:file://qadomain_acp.json"      
-
-
