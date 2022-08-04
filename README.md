@@ -10,3 +10,5 @@ aws cloudformation deploy --template-file ecs.yaml --stack-name my-rha-ecs --cap
 aws cloudformation deploy --template-file alb.yaml --stack-name my-rha-alb
 aws cloudformation deploy --template-file service.yaml --stack-name my-rha-service --capabilities CAPABILITY_IAM
 ```
+
+For windows version, head to the windows branch
